@@ -206,14 +206,12 @@ def get_location(path):
 	call(gdalwarp + " -co \"COMPRESS=LZW\" -co \"TILED=YES\" " + dst_file + " " + dst_file_tiled, shell=True)
 
 			
-def snow_season(path, year):
+def snow_season(src_loc, snow_dst_file, year):
 	
-	gdalwarp = "C:\Python276\Lib\site-packages\osgeo\gdalwarp.exe"	
 	myconn = psycopg2.connect("host="+conn_param.host+" dbname="+conn_param.dbname+" user="+conn_param.user+" password="+conn_param.password)
 	
 	season = str(year) + "-" + str(year + 1)
 
-	src_loc = path + "crocus_location.tif"
 	loc_rast = gdal.Open(src_loc)
 	loc_band = loc_rast.GetRasterBand(1)
 
@@ -234,12 +232,12 @@ def snow_season(path, year):
 
 	format = "GTiff"
 	driver = gdal.GetDriverByName(format)
-	snow_dst_file_tmp = path + "snow_" + season + "_tmp.tif"
-	if os.path.isfile(snow_dst_file_tmp):
-		os.remove(snow_dst_file_tmp)
-	snow = driver.Create(snow_dst_file_tmp, xsize, ysize, 1, gdal.GDT_Int16 )
+	if os.path.isfile(snow_dst_file):
+		os.remove(snow_dst_file)
+	snow = driver.Create(snow_dst_file, xsize, ysize, 1, gdal.GDT_Int16, [ 'TILED=YES', 'COMPRESS=LZW' ])
 	snow.SetGeoTransform(trans)
 	snow.SetProjection(proj)
+	snow.SetNoDataValue(-9999)
 
 	for i in range(0, ysize, y_block_size):
 		if i + y_block_size < ysize:
@@ -295,12 +293,8 @@ def snow_season(path, year):
 				
 				print i,j
 				snow.GetRasterBand(1).WriteArray(nb_days,j,i)
-
+	snow.BuildOverviews("NEAREST", 6, {2,4,8,16,32,64})
 	snow = None	
-	snow_dst_file = path + "snow_" + season + ".tif"
-	if os.path.isfile(snow_dst_file):
-		os.remove(snow_dst_file)
-	call(gdalwarp + " -co \"COMPRESS=LZW\" -co \"TILED=YES\" -srcnodata -9999 -dstnodata -9999 " + snow_dst_file_tmp + " " + snow_dst_file, shell=True)
 
 def mp_resort_rast(path, ind):
 
