@@ -296,7 +296,7 @@ def snow_season(src_loc, snow_dst_file, year):
 	snow.BuildOverviews("NEAREST", 6, {2,4,8,16,32,64})
 	snow = None	
 
-def mp_resort_rast(path, ind):
+def mp_resort_rast(src_dir, dst_dir, ind):
 
 	gdalwarp = "C:\Python276\Lib\site-packages\osgeo\gdalwarp.exe"
 	
@@ -316,12 +316,12 @@ def mp_resort_rast(path, ind):
 	cur.execute(query,(ind,))
 	
 		#new rasters extent
-	src_crocus_alt = path + "crocus_altitude.tif"
+	src_crocus_alt = src_dir + "crocus_altitude.tif"
 	src_rast = gdal.Open(src_crocus_alt)
 	src_trans = src_rast.GetGeoTransform()
 	
-	src_crocus_slope = path + "crocus_slope.tif"
-	src_crocus_aspect = path + "crocus_aspect.tif"
+	src_crocus_slope = src_dir + "crocus_slope.tif"
+	src_crocus_aspect = src_dir + "crocus_aspect.tif"
 
 	sta = cur.fetchone()
 	print sta[4]
@@ -330,14 +330,13 @@ def mp_resort_rast(path, ind):
 	y1 = src_trans[3] - (round((src_trans[3] - sta[3])/src_trans[5])*src_trans[5])
 	y0 = (src_trans[3] - src_rast.RasterYSize*src_trans[5]) + (round((sta[1] - (src_trans[3] - src_rast.RasterYSize*src_trans[5]))/src_trans[5])*src_trans[5])
 	te_str = str(x0) + " " + str(y0) + " " + str(x1) + " " + str(y1)
-	dst_file = path + "sta\\crocus_alt_" + sta[4] + ".tif"
-	dst_file_slope = path + "sta\\crocus_slope_" + sta[4] + ".tif"
-	dst_file_aspect = path + "sta\\crocus_aspect_" + sta[4] + ".tif"
+	dst_file = dst_dir + "crocus_alt_" + sta[4] + ".tif"
+	dst_file_slope = dst_dir + "crocus_slope_" + sta[4] + ".tif"
+	dst_file_aspect = dst_dir + "crocus_aspect_" + sta[4] + ".tif"
 	if os.path.isfile(dst_file):
 		os.remove(dst_file)
-	newdir = path + "sta"
-	if os.path.isdir(newdir) == False:
-		os.mkdir(newdir)
+	if os.path.isdir(dst_dir) == False:
+		os.mkdir(dst_dir)
 	#vector data from postgis
 	connString = "PG: host = "+conn_param.host+" dbname = "+conn_param.dbname+" user="+conn_param.user+" password="+conn_param.password
 	sql = "select ind id, the_geom from stations.geo_dsa where ind = '" + sta[4] + "'"
@@ -357,7 +356,7 @@ def mp_resort_rast(path, ind):
 	
 	format = "GTiff"
 	driver = gdal.GetDriverByName(format)
-	dst_file = "C:\ds_test_data\snow\sta\\" + sta[4] + ".tif"
+	dst_file = dst_dir + "mp_" + sta[4] + ".tif"
 	if os.path.isfile(dst_file):
 		os.remove(dst_file)
 	dst_ds = driver.Create(dst_file, xsize, ysize, 1, gdal.GDT_Float32)
@@ -381,18 +380,20 @@ def mp_resort_rast(path, ind):
 	dst_ds.GetRasterBand(1).WriteArray(mp_data)
 	dst_ds = None	
 
-def viability_index(path, ind, year):
+
+def viability_index(snow_dir, sta_dir, dst_dir, ind, year):
 	
 	gdalwarp = "C:\Python276\Lib\site-packages\osgeo\gdalwarp.exe"
 	
 	season = str(year) + "-" + str(year + 1)
 	
-	newdir = path + "sta\\" + season
+
+	newdir = dst_dir + season
 	if os.path.isdir(newdir) == False:
 		os.mkdir(newdir)
 	
 	#snow_data
-	snow_file = path + "snow_" + season + ".tif"
+	snow_file = snow_dir + "snow_" + season + ".tif"
 	snowdays_rast = gdal.Open(snow_file)
 	snowdays_trans = snowdays_rast.GetGeoTransform()
 	snowdays = snowdays_rast.GetRasterBand(1)
@@ -400,18 +401,19 @@ def viability_index(path, ind, year):
 	#prepare sql
 	myconn = psycopg2.connect("host="+conn_param.host+" dbname="+conn_param.dbname+" user="+conn_param.user+" password="+conn_param.password)
 	viability=myconn.cursor()
-	viability.execute("""
-	create table if not exists stations.viability_index(
+	query = """
+	create table if not exists stations.viability_index_lhb2105(
 		ind varchar(4), season integer, index float8)
-	""")
+	"""
+	viability.execute(query)
 	myconn.commit
 	
-	query = "delete from stations.viability_index where season= %s and ind= %s"
+	query = "delete from stations.viability_index_lhb2105 where season= %s and ind= %s"
 	viability.execute(query,(year,ind,))
 	myconn.commit
 	
 	#source data and raster properties
-	src_ind = path + "sta\\" + ind + ".tif"
+	src_ind = sta_dir + "mp_" + ind + ".tif"
 	src_rast = gdal.Open(src_ind)
 	src_trans = src_rast.GetGeoTransform()
 	src_proj = src_rast.GetProjection()
@@ -434,13 +436,15 @@ def viability_index(path, ind, year):
 	
 	cur.execute(query,(ind,))
 	sta = cur.fetchone()
+	
+	#compute raster extent
 	x0 = src_trans[0] + (round((sta[0] - src_trans[0])/src_trans[1])*src_trans[1])
 	x1 = (src_trans[0] + src_rast.RasterXSize*src_trans[1])-(round(((src_trans[0] + src_rast.RasterXSize*src_trans[1])-sta[2])/src_trans[1])*src_trans[1])
 	y1 = src_trans[3] - (round((src_trans[3] - sta[3])/src_trans[5])*src_trans[5])
 	y0 = (src_trans[3] - src_rast.RasterYSize*src_trans[5]) + (round((sta[1] - (src_trans[3] - src_rast.RasterYSize*src_trans[5]))/src_trans[5])*src_trans[5])
 	te_str = str(x0) + " " + str(y0) + " " + str(x1) + " " + str(y1)
 	
-	snowdays_ind_dst = path + "sta\\" + season + "\\" + ind + "_snowdays_" + season + ".tif"
+	snowdays_ind_dst = dst_dir + season + "\\" + ind + "_snowdays_" + season + ".tif"
 	if os.path.isfile(snowdays_ind_dst):
 		os.remove(snowdays_ind_dst)
 	#vector data from postgis
@@ -449,49 +453,63 @@ def viability_index(path, ind, year):
 
 	call(gdalwarp + " -co \"COMPRESS=LZW\" -co \"TILED=YES\" -cutline \"" + connString + "\" -csql \"" + sql + "\" -te "+ te_str +" -dstnodata -9999 " + snow_file + " " + snowdays_ind_dst, shell=True)
 		
-	#create new tmp file (not tiled)... A voir.
+	#create new file 
 	format = "GTiff"
 	driver = gdal.GetDriverByName(format)
-	dst_file_tmp = path + "sta\\"  + season + "\\viability_" + ind + "_tmp.tif"
-	if os.path.isfile(dst_file_tmp):
-		os.remove(dst_file_tmp)
-	dst_ds = driver.Create(dst_file_tmp, xsize, ysize, 3, gdal.GDT_Byte, [ 'TILED=YES', 'COMPRESS=LZW' ])
+	dst_file = dst_dir + season + "\\viability_" + ind + ".tif"
+	if os.path.isfile(dst_file):
+		os.remove(dst_file)
+	dst_ds = driver.Create(dst_file, xsize, ysize, 3, gdal.GDT_Byte, [ 'TILED=YES', 'COMPRESS=LZW' ])
 	dst_ds.SetGeoTransform(src_trans)
 	dst_ds.SetProjection(src_proj)
-	viable_index = numpy.zeros((ysize, xsize), numpy.uint8)
-	viable_index[numpy.isnan(mp_data)] = 1
+	viable_index_r = numpy.zeros((ysize, xsize), numpy.uint8)
+	viable_index_g = numpy.zeros((ysize, xsize), numpy.uint8)
+	viable_index_b = numpy.zeros((ysize, xsize), numpy.uint8)
+	viable_index_r[numpy.isnan(mp_data)] = 1
+	viable_index_g[numpy.isnan(mp_data)] = 1
+	viable_index_b[numpy.isnan(mp_data)] = 1
 
 	# viability index
-	#col_off = int((src_trans[0] - snowdays_trans[0]) / snowdays_trans[1])
-	#row_off = int((snowdays_trans[3] - src_trans[3]) / -snowdays_trans[5])
 	snowdays_rast = None
 	snowdays_rast = gdal.Open(snowdays_ind_dst)
 	snowdays = snowdays_rast.GetRasterBand(1)
-	#snow = snowdays.ReadAsArray(col_off, row_off, xsize, ysize)
 	snow = snowdays.ReadAsArray()
+	
+	#compute validity index
 	viable_pix = mp_data[snow >= 100]
 	viability_index = numpy.sum(viable_pix[viable_pix > 0.])
-	#viable_index[snow >= 100] = 255
-	#print numpy.isfinite(mp_data), viable_index.shape, 218*194
-	dst_ds.GetRasterBand(3).WriteArray(viable_index)
-	viable_index = viable_index + 255 * numpy.logical_and(numpy.isfinite(mp_data), snow >= 100)
-	dst_ds.GetRasterBand(2).WriteArray(viable_index)
-	viable_index[viable_index == 255] = 0
-	#viable_index.fill(0)
-	viable_index = viable_index + 255 * numpy.logical_and(numpy.isfinite(mp_data), snow < 100)
-	dst_ds.GetRasterBand(1).WriteArray(viable_index)
+	
+	#Create 3 band raster based on number of days
+		# Less than 100 days red
+	viable_index_r = viable_index_r + 222 * numpy.logical_and(numpy.isfinite(mp_data), snow < 100)
+	viable_index_g = viable_index_g + 45 * numpy.logical_and(numpy.isfinite(mp_data), snow < 100)
+	viable_index_b = viable_index_b + 38 * numpy.logical_and(numpy.isfinite(mp_data), snow < 100)
+	dst_ds.GetRasterBand(1).WriteArray(viable_index_r)
+	dst_ds.GetRasterBand(2).WriteArray(viable_index_g)
+	dst_ds.GetRasterBand(3).WriteArray(viable_index_b)
+		# More than 100 days dark green
+	viable_index_r[viable_index_r != 1].fill(0)
+	viable_index_g[viable_index_g != 1].fill(0)
+	viable_index_b[viable_index_b != 1].fill(0)
+	viable_index_r = viable_index_r + 49 * numpy.logical_and(numpy.isfinite(mp_data), snow >= 100 )
+	viable_index_g = viable_index_g + 163 * numpy.logical_and(numpy.isfinite(mp_data), snow >= 100)
+	viable_index_b = viable_index_b + 84 * numpy.logical_and(numpy.isfinite(mp_data), snow >= 100)
+	dst_ds.GetRasterBand(1).WriteArray(viable_index_r)
+	dst_ds.GetRasterBand(2).WriteArray(viable_index_g)
+	dst_ds.GetRasterBand(3).WriteArray(viable_index_b)
+
+	dst_band = dst_ds.GetRasterBand(1)
+	dst_band.SetNoDataValue(1)
+	dst_band = dst_ds.GetRasterBand(2)
+	dst_band.SetNoDataValue(1)
+	dst_band = dst_ds.GetRasterBand(3)
+	dst_band.SetNoDataValue(1)
 	dst_ds = None
 	snowdays_rast = None
-	dst_file = path + "sta\\" + season + "\\viability_" + ind + "_" + season + ".tif"
-	if os.path.isfile(dst_file):
-		os.remove(dst_file)
-	call(gdalwarp + " -co \"COMPRESS=LZW\" -co \"TILED=YES\" -srcnodata 1 -dstnodata 1 " + dst_file_tmp + " " + dst_file, shell=True)
-	os.remove(dst_file_tmp)
-	
+		
 	query = "insert into stations.viability_index values(%s, %s, %s);"
 	viability.execute(query,(ind, year, viability_index.tolist(),))
 	myconn.commit()
-	
 
 # #####################Use gdal utilities to compute slopes, aspects and retrieve MF mountain ranges
 
@@ -574,19 +592,33 @@ def viability_index(path, ind, year):
 path = "C:\ds_test_data\snow\\"
 	
 # get_location(path)	
-for season in range(2000,2006,1):
+for season in range(2000,2012,1):
 	#print season
-	snow_season(path, season)
+	#snow_season(path, season)
 		
 	###################COMPUTE DSA
 		
 	myconn = psycopg2.connect("host="+conn_param.host+" dbname="+conn_param.dbname+" user="+conn_param.user+" password="+conn_param.password)
 	cur = myconn.cursor()
-	cur.execute("select distinct ind from stations.geo_dsa a, spatial.geo_massifs_meteo_france b where st_intersects(a.the_geom, b.the_geom) order by 1")
+	cur.execute("""
+	with foo as 
+	(select * from spatial.geo_inpn_parcs_naturels_regionaux_2010
+	where gid = 1)
 
+	select distinct bar.indicatif_station, nom_indicatif from stations.geo_rm_sta_alpes_ind bar
+	join stations.geo_dsf a on bar.indicatif_station = a.indicatif_station
+	join foo on st_intersects(foo.the_geom, bar.the_geom)
+	order by 1
+	""")
+	#"select distinct ind from stations.geo_dsa a, spatial.geo_massifs_meteo_france b where st_intersects(a.the_geom, b.the_geom) order by 1"
+	
+	src_dir = "C:\\ds_test_data\\snow\\"
+	dst_dir = "C:\\ds_test_data\\snow\\sta_adamont\\"
+	
+	
 	for ind in cur:
 		print ind[0]
-		#mp_resort_rast(path,ind[0])
-		viability_index(path,ind[0], season)
+		mp_resort_rast(src_dir, dst_dir, ind[0])
+		viability_index(src_dir, dst_dir, dst_dir, ind[0], season)
 	
 print  "done"
