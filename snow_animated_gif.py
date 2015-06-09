@@ -91,11 +91,11 @@ def snow_days_gif(path, date):
 	snow_band = snow.GetRasterBand(1)
 	snow_band.SetNoDataValue(-9999)
 	snow = None	
-	snow_dst_file = path + "snow_test_" + str(date) + ".png"
+	snow_dst_file = path + "snow_test_" + str(date) + ".tif"
 	if os.path.isfile(snow_dst_file):
 		os.remove(snow_dst_file)
 	color_file = path + "color_test.txt"
-	call(gdaldem + " color-relief " + snow_dst_file_tmp + " " + color_file + " " + snow_dst_file + " -of PNG", shell=True)
+	call(gdaldem + " color-relief " + snow_dst_file_tmp + " " + color_file + " " + snow_dst_file, shell=True)
 
 path = "C:\ds_test_data\\test_snow_gif\\"
 myconn = psycopg2.connect("host="+conn_param.host+" dbname="+conn_param.dbname+" user="+conn_param.user+" password="+conn_param.password)
@@ -109,4 +109,4 @@ for date in days:
 	print date[0]
 	snow_days_gif(path,date[0])
 	
-# snow_days_gif(path,"2009-01-01")
+#snow_days_gif(path,"2009-01-01")
